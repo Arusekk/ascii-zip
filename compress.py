@@ -40,10 +40,10 @@ class ASCIICompressor(object):
     def _test(self):
         decompressor = zlib.decompressobj()
         decompressor.decompress('\x08' + chr(31 - (0x08*256) % 31))
-        print 'self test:',\
-        repr(decompressor.decompress(self.stream.data()))
-        # print 'self test flush:', \
-        repr(decompressor.flush())
+        print('self test:',\
+        repr(decompressor.decompress(self.stream.data())))
+        # print('self test flush:', \
+        #repr(decompressor.flush()))
 
     def compress(self, uncompressed_data):
         data = uncompressed_data
@@ -486,7 +486,7 @@ parser.add_argument('filename',
                     help='the file to compress')
 parser.add_argument('--mode',
                     type=str,
-                    choices=['raw', 'gzip', 'zlib', 'swf'],
+                    choices=['raw', 'gzip', 'zip', 'zlib', 'swf'],
                     help='format of the output data')
 parser.add_argument('--output',
                     type=str,
@@ -521,6 +521,41 @@ def wrap_gzip(compressed):
     )
 
 
+def wrap_zip(compressed, filename=args.filename):
+    crc = zlib.crc32(data) % pow(2, 32)
+    return (
+        b'PK\3\4' +    # Magic
+        binascii.unhexlify(
+            '0a000000' +     # Version needed to extract
+            '080000000000'   # Compression Method
+        ) +
+        struct.pack('<L', crc) +
+        struct.pack('<L', len(compressed) % pow(2, 32)) +
+        struct.pack('<L', len(data) % pow(2, 32)) +
+        struct.pack('<H', len(filename)) +
+        b'\0\0' +
+        filename +
+        compressed +
+        b'PK\1\2\0\0' +  # Magic
+        binascii.unhexlify(
+            '0a000000' +     # Version needed to extract
+            '080000000000'
+        ) +
+        struct.pack('<L', crc) +
+        struct.pack('<L', len(compressed) % pow(2, 32)) +
+        struct.pack('<L', len(data) % pow(2, 32)) +
+        struct.pack('<L', len(filename)) +
+        b'\0' * 10 +
+        struct.pack('<L', 0) + # offset of file in archive
+        filename +
+        b'PK\5\6\0\0\0\0\0\0' + # Magic
+        struct.pack('<H', 1) +  # number of files
+        struct.pack('<L', len(filename) + 0x2e) + # size of CD
+        struct.pack('<L', len(compressed) + len(filename) + 0x1e) + # offset of CD
+        b'\0\0'
+    )
+
+
 def wrap_zlib(compressed, data):
     return (
         'x\xda' +
@@ -530,15 +565,18 @@ def wrap_zlib(compressed, data):
 
 if args.mode == 'raw':
     compressed = compressor.compress(data)[0]
-    print repr(compressed)
+    print(repr(compressed))
     output.write(compressed)
 
 elif args.mode == 'gzip':
     output.write(wrap_gzip(compressor.compress(data)[0]))
 
+elif args.mode == 'zip':
+    output.write(wrap_zip(compressor.compress(data)[0]))
+
 elif args.mode == 'zlib':
     compressed, data = compressor.compress(data)
-    print repr(compressed)
+    print(repr(compressed))
     output.write(wrap_zlib(compressed, data))
 
 elif args.mode == 'swf':
